@@ -7,9 +7,6 @@
 [![Live Agents — goal.ruv.io/agents](https://img.shields.io/badge/_Live_Agents-goal.ruv.io%2Fagents-10b981?style=for-the-badge&logoColor=white&logo=react)](https://goal.ruv.io/agents)
 
 [![npm version (ruflo)](https://img.shields.io/npm/v/ruflo?label=ruflo&style=for-the-badge&logo=npm&color=cb3837)](https://www.npmjs.com/package/ruflo)
-[![npm downloads (ruflo)](https://img.shields.io/npm/dm/ruflo?label=ruflo%20downloads&style=for-the-badge&logo=npm&color=cb3837)](https://www.npmjs.com/package/ruflo)
-[![npm version (claude-flow)](https://img.shields.io/npm/v/claude-flow?label=claude-flow&style=for-the-badge&logo=npm&color=blue)](https://www.npmjs.com/package/claude-flow)
-[![npm downloads (claude-flow)](https://img.shields.io/npm/dm/claude-flow?label=claude-flow%20downloads&style=for-the-badge&logo=npm&color=blue)](https://www.npmjs.com/package/claude-flow)
 [![Ecosystem downloads](https://img.shields.io/badge/ecosystem%20downloads-22.2M%2B-blue?style=for-the-badge&logo=npm)](https://github.com/ruvnet/ruflo/blob/main/data/clone-data.proof.json)
 [![Git clones (14d)](https://img.shields.io/badge/git%20clones%2014d-115k-blueviolet?style=for-the-badge&logo=github)](https://github.com/ruvnet/ruflo/blob/main/data/clone-data.ledger.json)
 
@@ -73,14 +70,14 @@ There are **two different install paths** with very different surface areas. Pic
 # Install core + any plugins you need
 /plugin install ruflo-core@ruflo
 /plugin install ruflo-swarm@ruflo
-/plugin install ruflo-autopilot@ruflo
-/plugin install ruflo-federation@ruflo
+/plugin install ruflo-rag-memory@ruflo
+/plugin install ruflo-neural-trader@ruflo
 ```
 
 This adds slash commands and agent definitions only. The Ruflo MCP server is NOT registered, so `memory_store`, `swarm_init`, `agent_spawn`, etc. won't be callable from Claude. For the full loop, use Path B below.
 
 <details>
-<summary><strong>🔌 All 32 plugins</strong></summary>
+<summary><strong>🔌 All 33 plugins</strong></summary>
 
 #### Core & Orchestration
 
@@ -108,6 +105,7 @@ This adds slash commands and agent definitions only. The Ruflo MCP server is NOT
 | Plugin | What it does |
 |--------|-------------|
 | [**ruflo-intelligence**](plugins/ruflo-intelligence/README.md) | Agents learn from past successes and get smarter |
+| [**ruflo-graph-intelligence**](plugins/ruflo-graph-intelligence/) | Sublinear graph reasoning — PageRank, delta updates, complexity-aware execution (ADR-123) |
 | [**ruflo-daa**](plugins/ruflo-daa/README.md) | Dynamic agent behavior and cognitive patterns |
 | [**ruflo-ruvllm**](plugins/ruflo-ruvllm/README.md) | Run local LLMs (Ollama, etc.) with smart routing |
 | [**ruflo-goals**](plugins/ruflo-goals/README.md) | Break big goals into plans and track progress |
