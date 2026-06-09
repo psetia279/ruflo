@@ -111,8 +111,9 @@ function getStatuslineData() {
     const jsonStart = raw.indexOf('{');
     if (jsonStart === -1) throw new Error('no JSON in CLI output');
     const data = JSON.parse(raw.slice(jsonStart));
-    // Overlay real ADR count from both local directories (fast, no network).
-    data.adrs = getLocalADRCount();
+    // Overlay every block the CLI JSON omits (adrs/agentdb/tests/hooks/integration)
+    // with real local reads, so those segments reflect actual state instead of 0.
+    applyLocalOverlays(data);
     writeCache(data);
     return data;
   } catch { /* CLI unavailable or timed out */ }
@@ -145,13 +146,40 @@ function getLocalADRCount() {
   return { count: total, implemented: total, compliance: 0 };
 }
 
-// Minimal local fallback when the CLI is not installed or times out.
-// Returns a structure that matches the CLI JSON schema so the renderer works.
-function buildLocalFallback() {
-  const memMB = Math.floor(process.memoryUsage().heapUsed / 1024 / 1024);
-  const adrs = getLocalADRCount();
+// ─── Local overlays for segments the CLI JSON omits ──────────────
+// 'hooks statusline --json' only returns user/v3Progress/security/swarm/system.
+// agentdb/tests/hooks/integration are never populated, so without these overlays
+// they render as a permanent 0. Each reader is cheap and degrades to zeros.
 
-  // Test file count (pure directory walk, no file reads)
+// Real AgentDB stats from the local memory DB. Vectors live in .swarm/memory.db
+// (sql.js + HNSW); ruvector.db is an opaque redb store counted only toward size.
+// One read-only sqlite3 query (mode=ro never takes a write lock the daemon owns).
+function getLocalAgentDB() {
+  const result = { vectorCount: 0, dbSizeKB: 0, hasHnsw: false };
+  try {
+    let bytes = 0;
+    for (const f of ['.swarm/memory.db', 'ruvector.db']) {
+      try { bytes += fs.statSync(path.join(CWD, f)).size; } catch { /* missing */ }
+    }
+    result.dbSizeKB = Math.round(bytes / 1024);
+
+    const memDb = path.join(CWD, '.swarm', 'memory.db');
+    if (fs.existsSync(memDb)) {
+      const Q = String.fromCharCode(34);
+      const sql = Q + 'SELECT (SELECT COUNT(*) FROM memory_entries WHERE embedding IS NOT NULL)||' + "'|'" + '||(SELECT COUNT(*) FROM vector_indexes);' + Q;
+      const out = safeExec("sqlite3 'file:" + memDb + "?mode=ro' " + sql, 1500);
+      if (out && out.indexOf('|') !== -1) {
+        const parts = out.split('|');
+        result.vectorCount = parseInt(parts[0], 10) || 0;
+        result.hasHnsw = (parseInt(parts[1], 10) || 0) > 0;
+      }
+    }
+  } catch { /* ignore */ }
+  return result;
+}
+
+// Count test files via a bounded directory walk (no file reads).
+function getLocalTests() {
   let testFiles = 0;
   function countTests(dir, depth) {
     if ((depth || 0) > 4) return;
@@ -167,19 +195,82 @@ function buildLocalFallback() {
     } catch { /* ignore */ }
   }
   for (const d of ['tests', 'test', '__tests__', 'src', 'v3']) countTests(path.join(CWD, d));
+  return { testFiles, testCases: testFiles * 4 };
+}
 
-  return {
+// Count configured hooks from project .claude/settings.json. Claude Code hooks
+// have no enabled/disabled flag, so every configured hook counts as enabled.
+function getLocalHooks() {
+  const result = { enabled: 0, total: 0 };
+  try {
+    const settings = readJSON(path.join(CWD, '.claude', 'settings.json'));
+    const hooks = settings && settings.hooks;
+    if (hooks && typeof hooks === 'object') {
+      let n = 0;
+      for (const ev of Object.keys(hooks)) {
+        const groups = hooks[ev];
+        if (Array.isArray(groups)) {
+          for (const g of groups) {
+            if (g && Array.isArray(g.hooks)) n += g.hooks.length;
+          }
+        }
+      }
+      result.total = n;
+      result.enabled = n;
+    }
+  } catch { /* ignore */ }
+  return result;
+}
+
+// Best-effort integration block: DB presence + locally-configured stdio MCP
+// servers (project .mcp.json + global ~/.claude.json). Remote connectors are
+// account-managed and not present in local config, so they are not counted.
+function getLocalIntegration() {
+  const integration = { mcpServers: { enabled: 0, total: 0 }, hasDatabase: false };
+  try {
+    for (const f of ['.swarm/memory.db', 'ruvector.db']) {
+      if (fs.existsSync(path.join(CWD, f))) { integration.hasDatabase = true; break; }
+    }
+    const names = new Set();
+    const projMcp = readJSON(path.join(CWD, '.mcp.json'));
+    if (projMcp && projMcp.mcpServers) for (const k of Object.keys(projMcp.mcpServers)) names.add(k);
+    const claudeJson = readJSON(path.join(os.homedir(), '.claude.json'));
+    if (claudeJson) {
+      if (claudeJson.mcpServers) for (const k of Object.keys(claudeJson.mcpServers)) names.add(k);
+      const proj = claudeJson.projects && claudeJson.projects[CWD];
+      if (proj && proj.mcpServers && !Array.isArray(proj.mcpServers)) {
+        for (const k of Object.keys(proj.mcpServers)) names.add(k);
+      }
+    }
+    integration.mcpServers.total = names.size;
+    integration.mcpServers.enabled = names.size;
+  } catch { /* ignore */ }
+  return integration;
+}
+
+// Overlay every locally-derived block onto the CLI data (mutates in place).
+function applyLocalOverlays(data) {
+  data.adrs = getLocalADRCount();
+  data.agentdb = getLocalAgentDB();
+  data.tests = getLocalTests();
+  data.hooks = getLocalHooks();
+  data.integration = getLocalIntegration();
+  return data;
+}
+
+// Minimal local fallback when the CLI is not installed or times out.
+// Returns a structure that matches the CLI JSON schema so the renderer works.
+function buildLocalFallback() {
+  const memMB = Math.floor(process.memoryUsage().heapUsed / 1024 / 1024);
+
+  return applyLocalOverlays({
     user: { name: 'user', gitBranch: '', modelName: 'Claude Code' },
     v3Progress: { domainsCompleted: 0, totalDomains: 5, dddProgress: 0, patternsLearned: 0, sessionsCompleted: 0 },
     security: { status: 'NONE', cvesFixed: 0, totalCves: 0 },
     swarm: { activeAgents: 0, maxAgents: CONFIG.maxAgents, coordinationActive: false },
     system: { memoryMB: memMB, contextPct: 0, intelligencePct: 0, subAgents: 0 },
-    adrs,
-    hooks: { enabled: 0, total: 0 },
-    agentdb: { vectorCount: 0, dbSizeKB: 0, hasHnsw: false },
-    tests: { testFiles, testCases: testFiles * 4 },
     lastUpdated: new Date().toISOString(),
-  };
+  });
 }
 
 // ANSI colors
@@ -379,7 +470,14 @@ function getPkgVersion() {
     // (bin/node_modules) layouts.
     try {
       const binDir = path.dirname(process.execPath);
-      for (const gm of [path.join(binDir, '..', 'lib', 'node_modules'), path.join(binDir, 'node_modules')]) {
+      const globalModuleDirs = [path.join(binDir, '..', 'lib', 'node_modules'), path.join(binDir, 'node_modules')];
+      // #2221 follow-up: a custom npm prefix (e.g. ~/.npm-global) is decoupled from
+      // the node binary location, so the binDir-derived probes above all miss. Also
+      // probe the npm prefix from the environment and the common ~/.npm-global default.
+      for (const prefix of [process.env.npm_config_prefix, process.env.PREFIX, path.join(home, '.npm-global')]) {
+        if (prefix) globalModuleDirs.push(path.join(prefix, 'lib', 'node_modules'));
+      }
+      for (const gm of globalModuleDirs) {
         pkgPaths.push(
           path.join(gm, 'ruflo', 'package.json'),
           path.join(gm, '@claude-flow', 'cli', 'package.json'),
