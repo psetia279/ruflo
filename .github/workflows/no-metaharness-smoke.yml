@@ -81,7 +81,10 @@ jobs:
           "
 
       - name: Run meta-smoke (should pass with current optional deps in place)
-        run: node scripts/smoke-all-plugins.mjs --timeout 60
+        # iter 119 — 300s timeout to give ruflo-metaharness (118 steps,
+        # many npx invocations) enough wall time. Same change as
+        # all-plugins-smoke.yml; 60s was timing out at 151s+ in CI.
+        run: node scripts/smoke-all-plugins.mjs --timeout 300
 
       - name: Simulate metaharness-absent runtime by clearing the npm cache fetch
         # We can't actually un-install optional deps cleanly in this matrix
