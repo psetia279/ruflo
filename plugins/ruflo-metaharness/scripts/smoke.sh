@@ -191,6 +191,34 @@ grep -q "execCli(\[\s*'-y'\s*,\s*'metaharness@latest'" "$F" 2>/dev/null || \
 grep -q "cwd: opts" "$F" || miss="$miss no-cwd-passthrough"
 [[ -z "$miss" ]] && ok || bad "$miss"
 
+step "17z79. oia-audit-weekly.yml retains iter-108 hard-fail + iter-109 dispatch inputs (iter 116)"
+miss=""
+# Two load-bearing invariants accumulated in the weekly cron:
+#   iter 108 — hard-fail when timing.path != "file" (cron budget gate)
+#   iter 109 — workflow_dispatch inputs (threshold + alert_on_new_severity)
+# Both are *removable* by a careless refactor; YAML still validates; the
+# cron still runs; only the gate disappears. Smoke-anchor each.
+W="$ROOT/../../.github/workflows/oia-audit-weekly.yml"
+# iter-108 marker: the slow-path fail-fast block — specific annotation string.
+grep -q 'iter-67 fastpath flag may have regressed' "$W" 2>/dev/null \
+  || miss="$miss iter-108-hard-fail-removed"
+# iter-108 timing.path check itself
+grep -qE 'PATH_LABEL.*!=.*"file"' "$W" 2>/dev/null \
+  || miss="$miss iter-108-path-label-check-removed"
+# iter-109 marker: workflow_dispatch inputs — both inputs must exist
+grep -q 'workflow_dispatch:' "$W" 2>/dev/null \
+  || miss="$miss iter-109-workflow-dispatch-removed"
+grep -qE '^[ \t]+threshold:$' "$W" 2>/dev/null \
+  || miss="$miss iter-109-threshold-input-removed"
+grep -qE '^[ \t]+alert_on_new_severity:$' "$W" 2>/dev/null \
+  || miss="$miss iter-109-alert-input-removed"
+# iter-109 wiring into drift step via ${{ inputs.* }}
+grep -q 'inputs.threshold' "$W" 2>/dev/null \
+  || miss="$miss iter-109-threshold-wiring-removed"
+grep -q 'inputs.alert_on_new_severity' "$W" 2>/dev/null \
+  || miss="$miss iter-109-alert-wiring-removed"
+[[ -z "$miss" ]] && ok || bad "$miss"
+
 step "17z78. metaharness-ci.yml contains all 6 expected jobs (iter 115)"
 miss=""
 # metaharness-ci.yml accumulated 6 jobs across iters 1-48. A refactor
