@@ -1134,7 +1134,8 @@ npx ruflo metaharness audit-trend \              # diff two audits (drift)
 npx ruflo metaharness similarity \               # iter 36 — ADR-152 §3.1 weighted similarity
   --a a.json --b b.json [--per-dimension] [--alert-below 0.5]
 npx ruflo metaharness drift-from-history \       # iter 53 — 1-command drift (composes 3 primitives)
-  [--baseline-since 7d] [--threshold 0.95] [--dry-run]
+  [--baseline-since 7d] [--baseline-key <key>] [--threshold 0.95] [--dry-run]
+                                                 # iter 66 — --baseline-key skips audit-list (~43x faster)
 npx ruflo metaharness mint --name foo --template vertical:coding --confirm
 
 # Dedicated command

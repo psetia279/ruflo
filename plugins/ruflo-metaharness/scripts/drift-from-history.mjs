@@ -46,13 +46,17 @@ const CLI_PKG = process.env.CLI_CORE === '1'
 
 const ARGS = (() => {
   const a = {
-    path: '.', baselineSince: null, threshold: 0.95,
+    path: '.', baselineSince: null, baselineKey: null, threshold: 0.95,
     dryRun: false, format: 'table',
   };
   for (let i = 2; i < process.argv.length; i++) {
     const v = process.argv[i];
     if (v === '--path') a.path = process.argv[++i];
     else if (v === '--baseline-since') a.baselineSince = process.argv[++i];
+    // iter 66 — explicit baseline-key skips the ONNX-heavy audit-list
+    // call entirely. Cron jobs that know the key (e.g., via prior
+    // audit-list invocation) avoid the ~25s warmup each tick.
+    else if (v === '--baseline-key') a.baselineKey = process.argv[++i];
     else if (v === '--threshold') a.threshold = Number(process.argv[++i]);
     else if (v === '--dry-run') a.dryRun = true;
     else if (v === '--format') a.format = process.argv[++i];
@@ -138,15 +142,37 @@ async function main() {
   // iter 65 — measure parallel batch wall-clock so a future iter that
   // accidentally serializes (await audit-list; await oia-audit) doesn't
   // silently regress. timing.parallelSpeedup is surfaced in payload.
+  // iter 66 — when --baseline-key is provided, skip audit-list entirely
+  // (it's ~25s of ONNX warmup for what would be one record lookup).
+  // Run oia-audit alone in that case.
   const parallelStart = Date.now();
   const listStart = Date.now();
   const auditStart = Date.now();
-  const [listResult, auditResult] = await Promise.all([
-    runScriptJsonAsync('audit-list.mjs', listArgs)
-      .then((r) => ({ ...r, durationMs: Date.now() - listStart })),
-    runScriptJsonAsync('oia-audit.mjs', auditArgs)
-      .then((r) => ({ ...r, durationMs: Date.now() - auditStart })),
-  ]);
+  let listResult;
+  let auditResult;
+  let skippedAuditList = false;
+  if (ARGS.baselineKey) {
+    skippedAuditList = true;
+    // Synthesize a list result containing the user-provided key.
+    // No memory call needed — drift-from-history's downstream code
+    // only reads the `key` field from the picked record.
+    listResult = {
+      json: { records: [{ key: ARGS.baselineKey, startedAt: null }] },
+      exitCode: 0,
+      stdout: '',
+      stderr: '',
+      durationMs: 0,
+    };
+    auditResult = await runScriptJsonAsync('oia-audit.mjs', auditArgs);
+    auditResult.durationMs = Date.now() - auditStart;
+  } else {
+    [listResult, auditResult] = await Promise.all([
+      runScriptJsonAsync('audit-list.mjs', listArgs)
+        .then((r) => ({ ...r, durationMs: Date.now() - listStart })),
+      runScriptJsonAsync('oia-audit.mjs', auditArgs)
+        .then((r) => ({ ...r, durationMs: Date.now() - auditStart })),
+    ]);
+  }
   const parallelWallMs = Date.now() - parallelStart;
   const parallelSumMs = (listResult.durationMs || 0) + (auditResult.durationMs || 0);
 
@@ -233,6 +259,9 @@ async function main() {
         parallelSpeedup: parallelSumMs > 0
           ? Math.round((parallelSumMs / Math.max(parallelWallMs, 1)) * 100) / 100
           : 0,
+        // iter 66 — when true, audit-list was skipped via --baseline-key.
+        // Fastpath drops wall-clock from ~26s to ~1s (avoids ONNX warmup).
+        skippedAuditList,
       },
       baseline: {
         key: baseline.key,

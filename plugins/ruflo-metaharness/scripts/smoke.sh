@@ -191,6 +191,22 @@ grep -q "execCli(\[\s*'-y'\s*,\s*'metaharness@latest'" "$F" 2>/dev/null || \
 grep -q "cwd: opts" "$F" || miss="$miss no-cwd-passthrough"
 [[ -z "$miss" ]] && ok || bad "$miss"
 
+step "17z29. drift-from-history --baseline-key fast-path skips audit-list (iter 66)"
+miss=""
+F="$ROOT/scripts/drift-from-history.mjs"
+# Flag added
+grep -q -- "--baseline-key" "$F" 2>/dev/null || miss="$miss no-flag"
+grep -q "baselineKey: null" "$F" 2>/dev/null || miss="$miss no-default"
+# Fast-path branch present
+grep -q "skippedAuditList" "$F" 2>/dev/null || miss="$miss no-skip-flag"
+grep -q "ARGS.baselineKey" "$F" 2>/dev/null || miss="$miss no-baseline-key-branch"
+# Synthesized listResult so downstream code doesn't break
+grep -q "records: \[{ key: ARGS.baselineKey" "$F" 2>/dev/null || miss="$miss no-synthetic-record"
+# CLAUDE.md surfaces the flag
+CMD="$ROOT/../../CLAUDE.md"
+grep -q -- "--baseline-key <key>" "$CMD" 2>/dev/null || miss="$miss claude-md-no-flag"
+[[ -z "$miss" ]] && ok || bad "$miss"
+
 step "17z28. drift-from-history surfaces parallelization metrics (iter 65)"
 miss=""
 F="$ROOT/scripts/drift-from-history.mjs"
@@ -314,9 +330,10 @@ F="$ROOT/scripts/drift-from-history.mjs"
 # Async helper introduced
 grep -q "function runScriptJsonAsync" "$F" 2>/dev/null || miss="$miss no-async-helper"
 grep -q "Promise.all" "$F" 2>/dev/null || miss="$miss no-promise-all"
-# Reuses auditResult from parallel batch (no second oia-audit call)
+# Reuses auditResult from parallel batch (no second oia-audit call beyond the
+# iter-66 if/else fast-path/slow-path which are mutually exclusive at runtime).
 COUNT=$(grep -c "runScriptJson\(Async\)\?('oia-audit.mjs'" "$F" 2>/dev/null; true)
-[[ "$COUNT" -le 1 ]] || miss="$miss duplicate-oia-audit-calls:$COUNT"
+[[ "$COUNT" -le 2 ]] || miss="$miss duplicate-oia-audit-calls:$COUNT"
 # Comment marker
 grep -q "iter 58 — reuse auditResult from the parallel batch" "$F" 2>/dev/null || miss="$miss no-reuse-comment"
 [[ -z "$miss" ]] && ok || bad "$miss"
