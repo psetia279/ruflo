@@ -87,6 +87,12 @@ function emitAndExit(payload, code) {
     } else {
       console.log(`Baseline:        ${payload.baseline?.key ?? payload.baseline?.startedAt}`);
       console.log(`Current:         ${payload.current?.startedAt ?? '(fresh)'}`);
+      // iter 96 — surface the timing.path label so users see which
+      // fast-path ran (or didn't) at a glance.
+      if (payload.timing?.path) {
+        const wallMs = payload.timing.parallelWallMs;
+        console.log(`Path:            ${payload.timing.path} (wall ${wallMs}ms)`);
+      }
       console.log('');
       const sd = payload.drift?.structuralDistance;
       if (sd && sd.verdict !== 'unavailable') {

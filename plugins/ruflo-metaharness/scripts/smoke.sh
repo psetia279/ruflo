@@ -191,6 +191,19 @@ grep -q "execCli(\[\s*'-y'\s*,\s*'metaharness@latest'" "$F" 2>/dev/null || \
 grep -q "cwd: opts" "$F" || miss="$miss no-cwd-passthrough"
 [[ -z "$miss" ]] && ok || bad "$miss"
 
+step "17z59. drift-from-history table output shows path + wall (iter 96)"
+miss=""
+F="$ROOT/scripts/drift-from-history.mjs"
+grep -q "Path:.*payload.timing.path" "$F" 2>/dev/null || miss="$miss no-path-line-in-table"
+grep -q "wall \${wallMs}ms" "$F" 2>/dev/null || miss="$miss no-wall-label"
+# Runtime: table output contains the new Path: line
+TMPB=$(mktemp)
+node "$ROOT/scripts/oia-audit.mjs" --dry-run --format json 2>/dev/null > "$TMPB"
+node "$F" --baseline-file "$TMPB" --dry-run 2>&1 | grep -q "Path: *file" \
+  || miss="$miss runtime-no-path-line"
+rm -f "$TMPB"
+[[ -z "$miss" ]] && ok || bad "$miss"
+
 step "17z58. drift-from-history exposes derived timing.path field (iter 95)"
 miss=""
 F="$ROOT/scripts/drift-from-history.mjs"
