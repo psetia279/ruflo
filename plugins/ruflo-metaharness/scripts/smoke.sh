@@ -820,8 +820,9 @@ for f in $REFS; do
   COUNT=$((COUNT + 1))
   [[ -f "$SCRIPTS_DIR/$f" ]] || miss="$miss mcp-script-${f}-missing"
 done
-# Should be 9 unique scripts (one per MCP tool; mint deliberately excluded)
-[[ "$COUNT" == "9" ]] || miss="$miss mcp-script-count-stale:$COUNT-expected-9"
+# Should be 12 unique scripts (one per MCP tool; mint deliberately excluded).
+# Bumped from 9 → 12 after ADR-153 added bench/evolve/security_bench tools.
+[[ "$COUNT" == "12" ]] || miss="$miss mcp-script-count-stale:$COUNT-expected-12"
 [[ -z "$miss" ]] && ok || bad "$miss"
 
 step "17z52. SUBCOMMANDS map entries point at existing script files (iter 89)"
@@ -1625,9 +1626,10 @@ step "17z9. MCP success-semantic footnote + audit_trend file inputs (iter 46)"
 miss=""
 WRAPPER="$ROOT/../../v3/@claude-flow/cli/src/mcp-tools/metaharness-tools.ts"
 # Success-semantic constant declared + appended to N descriptions = N+1 occurrences.
-# Iter 46 set this at 9 (8 tools); iter 54 added the 9th tool → expect 10.
+# Iter 46 set this at 9 (8 tools); iter 54 added the 9th → 10. ADR-153
+# added 3 more tools (bench/evolve/security_bench) → 1 + 12 = 13.
 COUNT=$(grep -c "MCP_SUCCESS_SEMANTIC" "$WRAPPER" 2>/dev/null; true)
-[[ "$COUNT" == "10" ]] || miss="$miss footnote-count:$COUNT-expected-10"
+[[ "$COUNT" == "13" ]] || miss="$miss footnote-count:$COUNT-expected-13"
 # audit_trend now exposes baselineFile / currentFile
 grep -q "baselineFile" "$WRAPPER" 2>/dev/null || miss="$miss no-baseline-file"
 grep -q "currentFile" "$WRAPPER" 2>/dev/null || miss="$miss no-current-file"
@@ -1665,8 +1667,9 @@ grep -q "success = exitCode === 0" "$WRAPPER" 2>/dev/null || miss="$miss no-exit
 COUNT_OLD=$(grep -c "success: !r.degraded" "$WRAPPER" 2>/dev/null; true)
 [[ "$COUNT_OLD" == "0" ]] || miss="$miss old-pattern-still-present:$COUNT_OLD"
 COUNT_NEW=$(grep -c "success: r.success" "$WRAPPER" 2>/dev/null; true)
-# Iter 54 added a 9th tool. Future iters that add tools should bump this.
-[[ "$COUNT_NEW" == "9" ]] || miss="$miss new-pattern-count:$COUNT_NEW-expected-9"
+# Iter 54 added a 9th tool → 9. ADR-153 added 3 more (bench, evolve,
+# security_bench) → 12. Future iters that add tools should bump this.
+[[ "$COUNT_NEW" == "12" ]] || miss="$miss new-pattern-count:$COUNT_NEW-expected-12"
 # Runtime anchors: iter 44 success assertions present
 T="$ROOT/scripts/test-mcp-tools.mjs"
 grep -q "iter 44 fix" "$T" 2>/dev/null || miss="$miss no-iter44-anchors"

@@ -74,7 +74,7 @@ async function main() {
   // ──────────────────────────────────────────────────────────────────
   console.log('Phase 1 — module shape');
   assert(Array.isArray(tools), 'metaharnessTools is an array');
-  assert(tools.length === 9, `9 tools registered (got ${tools.length})`);
+  assert(tools.length === 12, `12 tools registered (got ${tools.length})`);
 
   const expectedNames = new Set([
     'metaharness_score',
@@ -88,6 +88,10 @@ async function main() {
     'metaharness_similarity',
     // iter 54 — one-command drift detection (composes audit-list + oia-audit + audit-trend)
     'metaharness_drift_from_history',
+    // ADR-153 — bench suites + evolve driver + security-focused bench
+    'metaharness_bench',
+    'metaharness_evolve',
+    'metaharness_security_bench',
   ]);
   const actualNames = new Set(tools.map((t) => t.name));
   for (const name of expectedNames) {
