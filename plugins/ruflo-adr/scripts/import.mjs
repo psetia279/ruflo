@@ -116,7 +116,10 @@ function parseStatus(text) {
   // `**Status**:` (colon outside) and dropped every Nygard-style ADR
   // to status=Unknown. Now the colon can sit on either side of the `**`.
   // Strip parenthetical qualifiers like "Proposed (v3.6.x)" -> "Proposed".
-  const m = /^\*\*Status:?\*\*:?\s*([A-Za-z][A-Za-z\- ]*?)(?:\s*\(.*?\))?\s*$/m.exec(text);
+  let m = /^\*\*Status:?\*\*:?\s*([A-Za-z][A-Za-z\- ]*?)(?:\s*\(.*?\))?\s*$/m.exec(text);
+  if (m) return m[1].trim();
+  // Also handle full-bold MADR style: **Status: Value** (entire phrase bolded)
+  m = /^\*\*Status:\s*([A-Za-z][A-Za-z\- ]*?)(?:\s*\([^)]*\))?\*\*\s*$/m.exec(text);
   return m ? m[1].trim() : 'Unknown';
 }
 
