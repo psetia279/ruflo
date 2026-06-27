@@ -53,15 +53,20 @@ const DIST = path.join(REPO_ROOT, 'v3', '@claude-flow', 'cli', 'dist', 'src');
 // CLI args
 // ----------------------------------------------------------------------------
 function parseArgs(argv) {
-  const args = { sizes: [1000, 5000, 20000, 50000], queries: 30, dims: 384, jsonOnly: false };
+  const args = { sizes: [1000, 5000, 20000, 50000], queries: 30, dims: 384, jsonOnly: false, only: null };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--sizes') args.sizes = argv[++i].split(',').map((s) => parseInt(s.trim(), 10)).filter(Boolean);
     else if (a === '--queries') args.queries = parseInt(argv[++i], 10);
     else if (a === '--dims') args.dims = parseInt(argv[++i], 10);
     else if (a === '--json-only') args.jsonOnly = true;
+    // --only=hnsw,sona,moe runs ONLY those sub-benches. Saves multi-minute wall
+    // when a Darwin-core agent only needs one dimension's measurement.
+    // Accept both `--only hnsw,sona` and `--only=hnsw,sona` forms.
+    else if (a === '--only') args.only = new Set(argv[++i].split(',').map(s => s.trim()).filter(Boolean));
+    else if (a.startsWith('--only=')) args.only = new Set(a.slice(7).split(',').map(s => s.trim()).filter(Boolean));
     else if (a === '--help' || a === '-h') {
-      console.log('Usage: node scripts/benchmark-intelligence.mjs [--sizes N,N] [--queries K] [--dims D] [--json-only]');
+      console.log('Usage: node scripts/benchmark-intelligence.mjs [--sizes N,N] [--queries K] [--dims D] [--json-only] [--only=hnsw,sona,moe]');
       process.exit(0);
     }
   }
@@ -603,23 +608,16 @@ async function main() {
   };
 
   // Each benchmark is isolated: a failure in one does not abort the rest.
-  log('\n[1/6] HNSW vs brute-force...');
-  try { results.hnsw = await benchHnsw(); } catch (e) { results.hnsw = { error: e.stack || e.message }; }
+  // --only filter skips dims not requested; saves wall-time for Darwin
+  // per-dimension agents (e.g. `--only=hnsw` runs only the HNSW bench).
+  const want = (name) => !ARGS.only || ARGS.only.has(name);
 
-  log('\n[2/6] Int8 quantization...');
-  try { results.int8 = await benchInt8(); } catch (e) { results.int8 = { error: e.stack || e.message }; }
-
-  log('\n[3/6] RaBitQ...');
-  try { results.rabitq = await benchRabitq(); } catch (e) { results.rabitq = { error: e.stack || e.message }; }
-
-  log('\n[4/6] SONA WASM adapt...');
-  try { results.sona = await benchSona(); } catch (e) { results.sona = { error: e.stack || e.message }; }
-
-  log('\n[5/6] MoE gate learning...');
-  try { results.moeGate = await benchMoeGate(); } catch (e) { results.moeGate = { error: e.stack || e.message }; }
-
-  log('\n[6/6] Embedding backend...');
-  try { results.embeddingBackend = await benchEmbeddingBackend(); } catch (e) { results.embeddingBackend = { error: e.stack || e.message }; }
+  if (want('hnsw')) { log('\n[1/6] HNSW vs brute-force...'); try { results.hnsw = await benchHnsw(); } catch (e) { results.hnsw = { error: e.stack || e.message }; } }
+  if (want('int8')) { log('\n[2/6] Int8 quantization...'); try { results.int8 = await benchInt8(); } catch (e) { results.int8 = { error: e.stack || e.message }; } }
+  if (want('rabitq')) { log('\n[3/6] RaBitQ...'); try { results.rabitq = await benchRabitq(); } catch (e) { results.rabitq = { error: e.stack || e.message }; } }
+  if (want('sona')) { log('\n[4/6] SONA WASM adapt...'); try { results.sona = await benchSona(); } catch (e) { results.sona = { error: e.stack || e.message }; } }
+  if (want('moe') || want('moeGate')) { log('\n[5/6] MoE gate learning...'); try { results.moeGate = await benchMoeGate(); } catch (e) { results.moeGate = { error: e.stack || e.message }; } }
+  if (want('embedding') || want('embeddingBackend')) { log('\n[6/6] Embedding backend...'); try { results.embeddingBackend = await benchEmbeddingBackend(); } catch (e) { results.embeddingBackend = { error: e.stack || e.message }; } }
 
   if (!ARGS.jsonOnly) printMarkdown(results);
 

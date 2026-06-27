@@ -54,6 +54,30 @@ async function getBridge() {
   return bridgeModule;
 }
 
+// Lazy-cached modules used by graph-query / graph-pathfinder dispatch.
+// Caching the resolved namespace avoids per-call dynamic-import overhead
+// in the ADR-130 hot path (smoke harness measures elapsedMs of every call).
+let graphBackendMod: typeof import('../ruvector/graph-backend.js') | null = null;
+async function getGraphBackend() {
+  if (!graphBackendMod) graphBackendMod = await import('../ruvector/graph-backend.js');
+  return graphBackendMod;
+}
+let graphEdgeWriterMod: typeof import('../memory/graph-edge-writer.js') | null = null;
+async function getGraphEdgeWriter() {
+  if (!graphEdgeWriterMod) graphEdgeWriterMod = await import('../memory/graph-edge-writer.js');
+  return graphEdgeWriterMod;
+}
+let memInitMod: typeof import('../memory/memory-initializer.js') | null = null;
+async function getMemInit() {
+  if (!memInitMod) memInitMod = await import('../memory/memory-initializer.js');
+  return memInitMod;
+}
+let embQuantMod: typeof import('../memory/embedding-quantization.js') | null = null;
+async function getEmbQuant() {
+  if (!embQuantMod) embQuantMod = await import('../memory/embedding-quantization.js');
+  return embQuantMod;
+}
+
 // ===== agentdb_health — Controller health check =====
 
 export const agentdbHealth: MCPTool = {
@@ -955,7 +979,7 @@ export const agentdbGraphQuery: MCPTool = {
       if (mode === 'k-hop') {
         // Try graph-node native first
         try {
-          const graphBackend = await import('../ruvector/graph-backend.js');
+          const graphBackend = await getGraphBackend();
           if (await graphBackend.isGraphBackendAvailable()) {
             const neighbors = await graphBackend.getNeighbors(nodeId, depth);
             return {
@@ -970,7 +994,7 @@ export const agentdbGraphQuery: MCPTool = {
 
         // SQL CTE fallback for k-hop up to depth 3
         try {
-          const { getBridgeDb } = await import('../memory/graph-edge-writer.js');
+          const { getBridgeDb } = await getGraphEdgeWriter();
           const db = await getBridgeDb();
           if (db) {
             const cteSql = buildKHopCTE(nodeId, Math.min(depth, 3), relation, budget.maxNodesVisited);
@@ -995,11 +1019,11 @@ export const agentdbGraphQuery: MCPTool = {
       // ── semantic mode ────────────────────────────────────────────────────────
       if (mode === 'semantic') {
         try {
-          const { generateEmbedding } = await import('../memory/memory-initializer.js');
+          const { generateEmbedding } = await getMemInit();
           const queryEmb = await generateEmbedding(nodeId);
           if (!queryEmb) throw new Error('embedding failed');
 
-          const { getBridgeDb } = await import('../memory/graph-edge-writer.js');
+          const { getBridgeDb } = await getGraphEdgeWriter();
           // #2246 fix: lazy-create memory.db on first pathfinder call so
           // fresh environments work without a pre-existing memory init.
           const db = await getBridgeDb(undefined, { createIfMissing: true });
@@ -1012,7 +1036,7 @@ export const agentdbGraphQuery: MCPTool = {
           const rows = db.prepare(
             `SELECT id, source_id, target_id, relation, weight, embedding_ref FROM graph_edges WHERE embedding_ref IS NOT NULL LIMIT ?`,
           ).raw().all(budget.maxNodesVisited) as unknown[][];
-          const { decodeEmbedding } = await import('../memory/embedding-quantization.js');
+          const { decodeEmbedding } = await getEmbQuant();
 
           const scored: Array<{ nodeId: string; score: number; relation: string }> = [];
           const qv = new Float32Array(queryEmb.embedding);
@@ -1043,7 +1067,7 @@ export const agentdbGraphQuery: MCPTool = {
       // ── pagerank mode ────────────────────────────────────────────────────────
       if (mode === 'pagerank') {
         try {
-          const { getBridgeDb } = await import('../memory/graph-edge-writer.js');
+          const { getBridgeDb } = await getGraphEdgeWriter();
           // #2246 fix: lazy-create memory.db on first pathfinder call so
           // fresh environments work without a pre-existing memory init.
           const db = await getBridgeDb(undefined, { createIfMissing: true });
@@ -1247,7 +1271,7 @@ export const agentdbGraphPathfinder: MCPTool = {
       }
 
       // Load edges from graph_edges
-      const { getBridgeDb } = await import('../memory/graph-edge-writer.js');
+      const { getBridgeDb } = await getGraphEdgeWriter();
       // #2246 fix: lazy-create memory.db on first pathfinder call.
       const db = await getBridgeDb(undefined, { createIfMissing: true });
       if (!db) return { success: false, error: 'graph_edges DB unavailable (sql.js could not load)', hint: 'Check Node version + try `ruflo memory init` to initialize manually.', seedNodeId };
@@ -1257,6 +1281,18 @@ export const agentdbGraphPathfinder: MCPTool = {
         : algorithm === 'temporal-centrality'
         ? 'source_id, target_id, weight, last_reinforced, confidence'
         : 'source_id, target_id, weight';
+
+      // Early-exit optimization: if seedNodeId has no incident edges,
+      // skip the full edge-table scan + PPR matrix build entirely.
+      // EXISTS query is O(index lookup) vs O(N) full scan + JS allocation.
+      try {
+        const seedHit = db.prepare(
+          `SELECT 1 FROM graph_edges WHERE source_id = ? OR target_id = ? LIMIT 1`,
+        ).raw().all(seedNodeId, seedNodeId) as unknown[][];
+        if (seedHit.length === 0) {
+          return { success: true, paths: [], count: 0, message: 'seedNodeId not present in graph_edges', seedNodeId, algorithm, elapsedMs: Date.now() - t0, budgetUsed: { millis: Date.now() - t0, nodes: 0 } };
+        }
+      } catch { /* fall through to full scan on probe failure */ }
 
       // better-sqlite3 API — see graph-query comment above; sql.js-style
       // `db.exec(sql, params)` throws "datatype mismatch" here.

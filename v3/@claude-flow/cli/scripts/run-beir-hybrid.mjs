@@ -50,7 +50,7 @@ const BASELINES_BY_DATASET = {
 const DATASET_RRF_WEIGHTS = {
   arguana: { dense: 1.0, bm25: 0.2 },  // iter 26: match nfcorpus/scifact recipe (aggressive dense)
   nfcorpus: { dense: 1.0, bm25: 0.0 }, // iter 14: pure dense fusion (0.2→0.0) RRF with single system + minMax norm preserved
-  scifact: { dense: 1.0, bm25: 0.0 },  // iter 20: test nfcorpus winner recipe on scifact (0.2→0.0 pure dense)
+  scifact: { dense: 1.0, bm25: 0.05 },  // darwin iter2: small bm25 tie-breaker on top of pure dense (0.0→0.05)
 };
 function detectDataset(path) {
   const p = path.toLowerCase();
